@@ -25,8 +25,8 @@ export async function POST(req: Request) {
     await User.findByIdAndUpdate(session.userId, { avatar: uploadRes.secure_url });
 
     return NextResponse.json({ success: true, url: uploadRes.secure_url });
-  } catch (error: any) {
-    console.error("Cloudinary upload error:", error);
-    return NextResponse.json({ error: error.message || "Failed to upload image" }, { status: 500 });
+  } catch (error) {
+    console.error("Cloudinary upload error:", error instanceof Error ? error.message : error);
+    return NextResponse.json({ error: "Failed to upload image" }, { status: 500 });
   }
 }

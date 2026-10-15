@@ -3,18 +3,32 @@
 import React, { useState } from "react";
 import { MapPin, Calendar, Clock, CheckCircle2 } from "lucide-react";
 import { triggerFestiveConfetti } from "@/components/effects/ConfettiTrigger";
+import Modal from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
+import { Alert } from "@/components/ui/Card";
+import { Input, Select } from "@/components/ui/Field";
+import { useToast } from "@/components/ui/Toast";
 
 export default function ScheduleCard() {
+  const { toast } = useToast();
   const [modalOpen, setModalOpen] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [guestsCount, setGuestsCount] = useState(1);
   const [passType, setPassType] = useState("standard");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const [successTicket, setSuccessTicket] = useState<string | null>(null);
+
+  const closeModal = () => {
+    setModalOpen(false);
+    setSuccessTicket(null);
+    setError("");
+  };
 
   const handleSubmitRSVP = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError("");
     setLoading(true);
     try {
       const res = await fetch("/api/rsvp", {
@@ -27,15 +41,16 @@ export default function ScheduleCard() {
           passType,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setSuccessTicket(data.ticketCode);
         triggerFestiveConfetti(0.4);
+        toast("RSVP confirmed — your digital pass is on its way!", "success");
       } else {
-        alert(data.error || "RSVP failed");
+        setError(data.error || "Unable to confirm your RSVP. Please try again.");
       }
     } catch {
-      alert("Something went wrong");
+      setError("Network error. Please check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -87,135 +102,119 @@ export default function ScheduleCard() {
 
             {/* Action CTA */}
             <div className="flex justify-center md:justify-end">
-              <button
-                onClick={() => setModalOpen(true)}
-                className="w-full md:w-auto px-8 py-4 rounded-2xl bg-gradient-to-r from-rose-500 to-amber-500 text-white font-bold text-sm shadow-xl shadow-rose-500/30 hover:scale-105 transition"
-              >
+              <Button onClick={() => setModalOpen(true)} className="w-full md:w-auto">
                 JOIN NOW
-              </button>
+              </Button>
             </div>
           </div>
         </div>
       </div>
 
       {/* RSVP Modal */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="glass-card max-w-md w-full rounded-3xl p-6 sm:p-8 border border-white/20 relative">
-            <button
-              onClick={() => {
-                setModalOpen(false);
-                setSuccessTicket(null);
-              }}
-              className="absolute top-4 right-4 text-gray-400 hover:text-white text-lg font-bold"
-            >
-              ✕
-            </button>
-
-            {successTicket ? (
-              <div className="text-center space-y-4 py-4">
-                <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto">
-                  <CheckCircle2 className="w-8 h-8" />
-                </div>
-                <h3 className="text-2xl font-bold text-white">You are Confirmed!</h3>
-                <p className="text-sm text-gray-300">
-                  Your reservation is secured. A digital pass has been emailed to <span className="text-amber-300 font-semibold">{email}</span>.
-                </p>
-                <div className="p-4 rounded-xl bg-white/[0.06] border border-amber-400/30 font-mono text-amber-300 text-lg font-bold">
-                  {successTicket}
-                </div>
-                <button
-                  onClick={() => {
-                    setModalOpen(false);
-                    setSuccessTicket(null);
-                  }}
-                  className="w-full py-3 rounded-xl bg-rose-500 text-white font-bold text-sm"
-                >
-                  Done
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmitRSVP} className="space-y-4">
-                <div className="text-center mb-4">
-                  <h3 className="text-2xl font-black text-white">Midnight Party RSVP</h3>
-                  <p className="text-xs text-gray-400 mt-1">Reserve your digital ticket for New Park Hotel</p>
-                </div>
-
-                <div>
-                  <label htmlFor="rsvp-name" className="text-xs font-semibold text-gray-300 block mb-1">Full Name</label>
-                  <input
-                    id="rsvp-name"
-                    name="name"
-                    type="text"
-                    autoComplete="name"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="John Doe"
-                    className="w-full px-4 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-rose-500 text-xs sm:text-sm"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="rsvp-email" className="text-xs font-semibold text-gray-300 block mb-1">Email Address</label>
-                  <input
-                    id="rsvp-email"
-                    name="email"
-                    type="email"
-                    autoComplete="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="john@example.com"
-                    className="w-full px-4 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-rose-500 text-xs sm:text-sm"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label htmlFor="rsvp-guests" className="text-xs font-semibold text-gray-300 block mb-1">Guests</label>
-                    <select
-                      id="rsvp-guests"
-                      name="guestsCount"
-                      value={guestsCount}
-                      onChange={(e) => setGuestsCount(Number(e.target.value))}
-                      className="w-full px-3 py-2.5 rounded-xl bg-[#131726] border border-white/10 text-white text-xs sm:text-sm focus:outline-none focus:border-rose-500"
-                    >
-                      <option value={1}>1 Guest</option>
-                      <option value={2}>2 Guests</option>
-                      <option value={4}>4 Guests</option>
-                      <option value={6}>6 (Table)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label htmlFor="rsvp-pass" className="text-xs font-semibold text-gray-300 block mb-1">Pass Tier</label>
-                    <select
-                      id="rsvp-pass"
-                      name="passType"
-                      value={passType}
-                      onChange={(e) => setPassType(e.target.value)}
-                      className="w-full px-3 py-2.5 rounded-xl bg-[#131726] border border-white/10 text-white text-xs sm:text-sm focus:outline-none focus:border-rose-500"
-                    >
-                      <option value="standard">Standard Pass</option>
-                      <option value="vip_silver">VIP Silver</option>
-                      <option value="diamond_all_access">Diamond VIP</option>
-                    </select>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-rose-500 to-amber-500 text-white font-bold text-sm shadow-lg shadow-rose-500/30 hover:opacity-95 transition disabled:opacity-50 mt-4"
-                >
-                  {loading ? "Confirming Reservation..." : "Confirm My RSVP"}
-                </button>
-              </form>
-            )}
+      <Modal
+        open={modalOpen}
+        onClose={closeModal}
+        title="Midnight Party RSVP"
+        className="max-w-md w-full"
+      >
+        {successTicket ? (
+          <div className="text-center space-y-4 py-4 px-6">
+            <div className="w-16 h-16 rounded-full bg-success/20 text-success flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-8 h-8" aria-hidden="true" />
+            </div>
+            <h3 className="text-2xl font-bold text-ink">You are Confirmed!</h3>
+            <p className="text-sm text-ink-secondary">
+              Your reservation is secured. A digital pass has been emailed to{" "}
+              <span className="text-gold font-semibold">{email}</span>.
+            </p>
+            <div className="p-4 rounded-xl bg-white/[0.06] border border-gold/30 font-mono text-gold text-lg font-bold">
+              {successTicket}
+            </div>
+            <Button fullWidth onClick={closeModal}>
+              Done
+            </Button>
           </div>
-        </div>
-      )}
+        ) : (
+          <form onSubmit={handleSubmitRSVP} className="space-y-4 px-6 pb-6" noValidate>
+            <p className="text-xs text-ink-muted text-center">
+              Reserve your digital ticket for New Park Hotel
+            </p>
+
+            {error && <Alert tone="error">{error}</Alert>}
+
+            <div>
+              <label htmlFor="rsvp-name" className="label">
+                Full Name
+              </label>
+              <Input
+                id="rsvp-name"
+                name="name"
+                type="text"
+                autoComplete="name"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="John Doe"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="rsvp-email" className="label">
+                Email Address
+              </label>
+              <Input
+                id="rsvp-email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="john@example.com"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="rsvp-guests" className="label">
+                  Guests
+                </label>
+                <Select
+                  id="rsvp-guests"
+                  name="guestsCount"
+                  value={guestsCount}
+                  onChange={(e) => setGuestsCount(Number(e.target.value))}
+                >
+                  <option value={1}>1 Guest</option>
+                  <option value={2}>2 Guests</option>
+                  <option value={4}>4 Guests</option>
+                  <option value={6}>6 (Table)</option>
+                </Select>
+              </div>
+
+              <div>
+                <label htmlFor="rsvp-pass" className="label">
+                  Pass Tier
+                </label>
+                <Select
+                  id="rsvp-pass"
+                  name="passType"
+                  value={passType}
+                  onChange={(e) => setPassType(e.target.value)}
+                >
+                  <option value="standard">Standard Pass</option>
+                  <option value="vip_silver">VIP Silver</option>
+                  <option value="diamond_all_access">Diamond VIP</option>
+                </Select>
+              </div>
+            </div>
+
+            <Button type="submit" loading={loading} fullWidth>
+              Confirm My RSVP
+            </Button>
+          </form>
+        )}
+      </Modal>
     </section>
   );
 }

@@ -9,15 +9,17 @@ export async function POST(req: Request) {
 
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
+  // Never trust unauthenticated webhook payloads
+  if (!webhookSecret || !signature) {
+    console.error("Webhook rejected: missing signature or STRIPE_WEBHOOK_SECRET");
+    return NextResponse.json({ error: "Webhook signature required" }, { status: 400 });
+  }
+
   let event;
   try {
-    if (webhookSecret && signature) {
-      event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
-    } else {
-      event = JSON.parse(body);
-    }
-  } catch (err: any) {
-    console.error("Webhook signature verification failed:", err.message);
+    event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+  } catch (err) {
+    console.error("Webhook signature verification failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
@@ -25,7 +27,7 @@ export async function POST(req: Request) {
     await connectToDatabase();
 
     if (event.type === "checkout.session.completed") {
-      const session = event.data.object as any;
+      const session = event.data.object as unknown as { customer?: string; subscription?: string; metadata?: Record<string, string> };
       const userId = session.metadata?.userId;
       const planId = session.metadata?.planId || "silver";
 
@@ -39,7 +41,8 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ received: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error) {
+    console.error("Webhook handling error:", error instanceof Error ? error.message : error);
+    return NextResponse.json({ error: "Webhook handling failed" }, { status: 500 });
   }
 }

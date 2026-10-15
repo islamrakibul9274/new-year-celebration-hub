@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     await pusherServer.trigger("live-party-room", "confetti-blast", payload);
 
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Failed to trigger confetti" }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Failed to trigger confetti" }, { status: 500 });
   }
 }

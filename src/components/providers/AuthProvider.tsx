@@ -1,6 +1,7 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 export interface UserSession {
   userId: string;
@@ -18,6 +19,8 @@ export interface UserSession {
 interface AuthContextType {
   user: UserSession | null;
   loading: boolean;
+  sessionExpired: boolean;
+  dismissSessionExpired: () => void;
   login: (userData: UserSession) => void;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -26,6 +29,8 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
+  sessionExpired: false,
+  dismissSessionExpired: () => {},
   login: () => {},
   logout: async () => {},
   refreshUser: async () => {},
@@ -34,39 +39,43 @@ const AuthContext = createContext<AuthContextType>({
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserSession | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const router = useRouter();
 
-  const fetchCurrentUser = async () => {
+  const fetchCurrentUser = useCallback(async () => {
     try {
       const res = await fetch("/api/auth/me");
-      if (res.ok) {
-        const data = await res.json();
-        setUser(data.user);
-      } else {
-        setUser(null);
+      const data = await res.json().catch(() => ({ user: null }));
+      if (res.status === 401 && data.code === "session_expired") {
+        setSessionExpired(true);
       }
+      setUser(res.ok ? data.user : null);
     } catch {
       setUser(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchCurrentUser();
-  }, []);
+  }, [fetchCurrentUser]);
 
   const login = (userData: UserSession) => {
+    setSessionExpired(false);
     setUser(userData);
   };
 
   const logout = async () => {
     try {
       await fetch("/api/auth/logout", { method: "POST" });
-      setUser(null);
-      window.location.href = "/";
     } catch (e) {
       console.error("Logout error", e);
     }
+    setUser(null);
+    setSessionExpired(false);
+    router.push("/");
+    router.refresh();
   };
 
   const refreshUser = async () => {
@@ -74,7 +83,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        sessionExpired,
+        dismissSessionExpired: () => setSessionExpired(false),
+        login,
+        logout,
+        refreshUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

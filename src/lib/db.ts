@@ -17,7 +17,6 @@ interface MongooseCache {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var mongooseCache: MongooseCache | undefined;
 }
 
@@ -56,10 +55,10 @@ export async function connectToDatabase(): Promise<typeof mongoose | null> {
   try {
     cached!.conn = await cached!.promise;
     return cached!.conn;
-  } catch (e: any) {
+  } catch (e) {
     cached!.promise = null;
     cached!.isFailed = true;
-    console.warn("MongoDB connection failed, activating fallback storage:", e.message);
+    console.warn("MongoDB connection failed, activating fallback storage:", (e as Error).message);
     return null;
   }
 }

@@ -35,3 +35,10 @@ next-env.d.ts
 
 # Local Netlify folder
 .netlify
+
+# local fallback database (may contain user data)
+data/
+
+# test artifacts
+test-results/
+playwright-report/

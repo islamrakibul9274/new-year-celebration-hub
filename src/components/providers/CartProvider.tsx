@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { triggerFestiveConfetti } from "@/components/effects/ConfettiTrigger";
+import { couponRate, findCoupon } from "@/lib/coupons";
 
 export interface CartItem {
   id: number;
@@ -128,21 +129,19 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   };
 
   const applyCoupon = (code: string) => {
-    const clean = code.trim().toUpperCase();
-    if (clean === "FESTIVE15" || clean === "NYE2026" || clean === "HOLIDAY50") {
-      setAppliedCoupon(true);
-      setCouponCode(clean);
-      triggerFestiveConfetti(0.4);
-      return true;
-    }
-    return false;
+    const coupon = findCoupon(code);
+    if (!coupon) return false;
+    setAppliedCoupon(true);
+    setCouponCode(coupon.code);
+    triggerFestiveConfetti(0.4);
+    return true;
   };
 
   const totalCount = items.reduce((sum, item) => sum + item.qty, 0);
-  const subtotal = items.reduce((sum, item) => sum + item.price * item.qty, 0);
-  const discountRate = appliedCoupon ? (couponCode === "HOLIDAY50" ? 0.5 : 0.15) : 0;
-  const discountAmount = subtotal * discountRate;
-  const total = Math.max(0, subtotal - discountAmount);
+  const subtotal = Math.round(items.reduce((sum, item) => sum + item.price * item.qty, 0) * 100) / 100;
+  const discountRate = appliedCoupon ? couponRate(couponCode) : 0;
+  const discountAmount = Math.round(subtotal * discountRate * 100) / 100;
+  const total = Math.round(Math.max(0, subtotal - discountAmount) * 100) / 100;
 
   return (
     <CartContext.Provider

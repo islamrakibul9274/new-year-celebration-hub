@@ -1,17 +1,30 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { cookies } from "next/headers";
+import { getSession, SESSION_COOKIE, verifyToken } from "@/lib/auth";
 import { connectToDatabase } from "@/lib/db";
 import { User } from "@/models/User";
 import { localDB } from "@/lib/store";
+import type { UserLike } from "@/types";
 
 export async function GET() {
   try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(SESSION_COOKIE)?.value;
+
+    // Cookie present but token invalid/expired → tell the client so it can show a notice
+    if (token && !verifyToken(token)) {
+      return NextResponse.json(
+        { user: null, error: "Your session has expired. Please sign in again.", code: "session_expired" },
+        { status: 401 },
+      );
+    }
+
     const session = await getSession();
     if (!session || !session.userId) {
       return NextResponse.json({ user: null });
     }
 
-    let user: any = null;
+    let user: UserLike | null = null;
     const mongooseConn = await connectToDatabase();
     if (mongooseConn) {
       try {
@@ -20,7 +33,7 @@ export async function GET() {
     }
 
     if (!user) {
-      user = localDB.findUserById(session.userId);
+      user = localDB.findUserById(session.userId) ?? null;
     }
 
     if (!user) {
@@ -51,50 +64,5 @@ export async function GET() {
     });
   } catch {
     return NextResponse.json({ user: null });
-  }
-}
-
-export async function PUT(req: Request) {
-  try {
-    const session = await getSession();
-    if (!session || !session.userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const body = await req.json();
-    let updatedUser: any = null;
-
-    const mongooseConn = await connectToDatabase();
-    if (mongooseConn) {
-      try {
-        updatedUser = await User.findByIdAndUpdate(
-          session.userId,
-          {
-            name: body.name,
-            avatar: body.avatar,
-            themePreference: body.themePreference,
-            confettiSoundsEnabled: body.confettiSoundsEnabled,
-            customGreeting: body.customGreeting,
-            bio: body.bio,
-          },
-          { new: true }
-        ).select("-password");
-      } catch {}
-    }
-
-    if (!updatedUser) {
-      updatedUser = localDB.updateUser(session.userId, {
-        name: body.name,
-        avatar: body.avatar,
-        themePreference: body.themePreference,
-        confettiSoundsEnabled: body.confettiSoundsEnabled,
-        customGreeting: body.customGreeting,
-        bio: body.bio,
-      });
-    }
-
-    return NextResponse.json({ success: true, user: updatedUser });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

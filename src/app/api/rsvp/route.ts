@@ -2,18 +2,48 @@ import { NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/db";
 import { RSVP } from "@/models/RSVP";
 import { localDB } from "@/lib/store";
-import { getSession } from "@/lib/auth";
-import { resend } from "@/lib/resend";
+import { getFreshSession } from "@/lib/auth";
+import { isValidEmail, isValidName } from "@/lib/validators";
+import { clientKey, rateLimit, tooManyRequests } from "@/lib/rate-limit";
+import { planAllowsPassType, getPlan, bestPassTier } from "@/lib/plans";
+import { sendEmail, ticketEmailHtml } from "@/lib/mailer";
+import type { StoredRSVP } from "@/lib/store";
+
+const VALID_PASS_TYPES = ["standard", "vip_silver", "diamond_all_access"];
 
 export async function POST(req: Request) {
   try {
-    const { guestName, guestEmail, guestsCount, passType, celebrationWish } = await req.json();
+    const limit = rateLimit(clientKey(req, "rsvp"), 10, 60_000);
+    if (!limit.success) return tooManyRequests(limit.retryAfterSeconds);
 
-    if (!guestName || !guestEmail) {
-      return NextResponse.json({ error: "Name and email are required." }, { status: 400 });
+    const body = await req.json().catch(() => null);
+    const { guestName, guestEmail, guestsCount, passType, celebrationWish } = body ?? {};
+
+    if (!isValidName(guestName)) {
+      return NextResponse.json({ error: "Please enter your full name (2–60 characters)." }, { status: 400 });
+    }
+    if (!isValidEmail(guestEmail)) {
+      return NextResponse.json({ error: "Please enter a valid email address." }, { status: 400 });
     }
 
-    const session = await getSession();
+    const partySize = Number(guestsCount) || 1;
+    if (partySize < 1 || partySize > 10) {
+      return NextResponse.json({ error: "Party size must be between 1 and 10 guests." }, { status: 400 });
+    }
+    if (typeof passType === "string" && !VALID_PASS_TYPES.includes(passType)) {
+      return NextResponse.json({ error: "Please choose a valid pass type." }, { status: 400 });
+    }
+
+    const session = await getFreshSession();
+    const userPlan = getPlan(session?.plan);
+
+    // Premium tiers are a membership benefit — never issued without the pass
+    const entitledPassType =
+      session && passType && planAllowsPassType(session.plan, passType)
+        ? passType
+        : bestPassTier(session?.plan);
+    const wasDowngraded = Boolean(passType && passType !== entitledPassType);
+
     const randomSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
     const ticketCode = `NYE-2026-${randomSuffix}`;
 
@@ -21,9 +51,12 @@ export async function POST(req: Request) {
       userId: session?.userId || null,
       guestName: guestName.trim(),
       guestEmail: guestEmail.toLowerCase().trim(),
-      guestsCount: guestsCount || 1,
-      passType: passType || "standard",
-      celebrationWish: celebrationWish || "Looking forward to an amazing year!",
+      guestsCount: partySize,
+      passType: entitledPassType,
+      celebrationWish:
+        typeof celebrationWish === "string" && celebrationWish.trim()
+          ? celebrationWish.trim().slice(0, 300)
+          : "Looking forward to an amazing year!",
       ticketCode,
       status: "confirmed",
     };
@@ -39,48 +72,36 @@ export async function POST(req: Request) {
       localDB.createRSVP(rsvpData);
     }
 
-    // Send confirmation email via Resend
-    try {
-      if (process.env.RESEND_API_KEY && process.env.RESEND_API_KEY !== "re_dummy") {
-        await resend.emails.send({
-          from: "Midnight Party RSVP <onboarding@resend.dev>",
-          to: guestEmail,
-          subject: `🎟️ Your Midnight Party Pass [${ticketCode}] Confirmed!`,
-          html: `
-            <div style="background-color: #0b0d14; color: #ffffff; padding: 32px; font-family: sans-serif; border-radius: 12px; border: 1px solid #272c3d;">
-              <h1 style="color: #ff3366; margin-bottom: 8px;">You're on the Guest List! 🎆</h1>
-              <p style="font-size: 16px; color: #d1d5db;">Hey ${guestName}, get ready for the most magical Midnight Celebration of the year!</p>
-              
-              <div style="background: rgba(255,51,102,0.1); border: 1px dashed #ff3366; border-radius: 8px; padding: 20px; margin: 24px 0;">
-                <p style="margin: 4px 0;"><strong>Ticket Code:</strong> <span style="font-family: monospace; font-size: 18px; color: #fbbf24;">${ticketCode}</span></p>
-                <p style="margin: 4px 0;"><strong>Event:</strong> Midnight Party Celebration</p>
-                <p style="margin: 4px 0;"><strong>Venue:</strong> New Park Hotel, Beach Garden Florida</p>
-                <p style="margin: 4px 0;"><strong>Date:</strong> 31 December Night (7:30 PM - 12:30 AM)</p>
-                <p style="margin: 4px 0;"><strong>Pass Type:</strong> ${passType.toUpperCase()}</p>
-                <p style="margin: 4px 0;"><strong>Guests:</strong> ${guestsCount || 1} Person(s)</p>
-              </div>
-            </div>
-          `,
-        });
-      }
-    } catch {
-      // Email dispatch non-blocking
-    }
+    await sendEmail(
+      rsvpData.guestEmail,
+      `🎟️ Your Midnight Party Pass [${ticketCode}] Confirmed!`,
+      ticketEmailHtml({
+        guestName: rsvpData.guestName,
+        ticketCode,
+        passType: rsvpData.passType,
+        guestsCount: partySize,
+      }),
+    );
 
     return NextResponse.json({
       success: true,
       ticketCode,
-      message: "RSVP successfully confirmed! Check your email for your digital ticket.",
+      passType: entitledPassType,
+      downgraded: wasDowngraded,
+      message: wasDowngraded
+        ? `RSVP confirmed! Your ${userPlan.name} pass includes the Standard tier — upgrade to unlock VIP passes.`
+        : "RSVP successfully confirmed! Check your email for your digital ticket.",
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || "Failed to confirm RSVP" }, { status: 500 });
+  } catch (error) {
+    console.error("RSVP error:", error instanceof Error ? error.message : error);
+    return NextResponse.json({ error: "Unable to confirm RSVP. Please try again." }, { status: 500 });
   }
 }
 
 export async function GET() {
   try {
     let totalCount = 240;
-    let latestGuests: any[] = [];
+    let latestGuests: StoredRSVP[] = [];
 
     const mongooseConn = await connectToDatabase();
     if (mongooseConn) {
@@ -101,7 +122,8 @@ export async function GET() {
     }
 
     return NextResponse.json({ totalCount, latestGuests });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error) {
+    console.error("RSVP list error:", error instanceof Error ? error.message : error);
+    return NextResponse.json({ error: "Unable to load the guest list." }, { status: 500 });
   }
 }
