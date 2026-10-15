@@ -5,7 +5,8 @@
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-v4-38B2AC?style=for-the-badge&logo=tailwindcss)](https://tailwindcss.com/)
 [![Tests](https://img.shields.io/badge/tests-60%20passing-brightgreen?style=for-the-badge)](./TEST-RESULTS.md)
 
-> **Live:** https://newyear-celebration-hub.netlify.app
+> **🚀 Live deployment:** https://newyear-celebration-hub.netlify.app
+> *(production deploy `6ad155e1`, built 2026-10-16 — Next.js 15.5.23, all pages verified 200)*
 > **GitHub:** https://github.com/islamrakibul9274/new-year-celebration-hub
 
 ---
